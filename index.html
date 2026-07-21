@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Spider-Man 2.5cm Swing</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bangers&family=Orbitron:wght@600;800&display=swap" rel="stylesheet">
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+      touch-action: none;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #020617;
+      font-family: 'Orbitron', sans-serif;
+      position: fixed;
+    }
+
+    #canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    .ui-layer {
+      position: absolute;
+      top: max(12px, env(safe-area-inset-top));
+      left: max(16px, env(safe-area-inset-left));
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    .title {
+      font-family: 'Bangers', cursive;
+      font-size: clamp(1.8rem, 6vw, 2.8rem);
+      color: #ef4444;
+      text-shadow: 2px 2px 0px #000, 0 0 12px rgba(239, 68, 68, 0.8);
+      letter-spacing: 1.5px;
+      line-height: 1;
+    }
+
+    .subtitle {
+      font-size: clamp(0.6rem, 2.2vw, 0.8rem);
+      color: #38bdf8;
+      letter-spacing: 2px;
+      margin-top: 2px;
+    }
+
+    .touch-hint {
+      position: absolute;
+      bottom: max(16px, env(safe-area-inset-bottom));
+      left: 50%;
+      transform: translateX(-50%);
+      color: #f8fafc;
+      font-size: clamp(0.7rem, 2.8vw, 0.85rem);
+      letter-spacing: 1px;
+      background: rgba(15, 23, 42, 0.85);
+      padding: 8px 18px;
+      border-radius: 20px;
+      border: 1.5px solid rgba(56, 189, 248, 0.5);
+      backdrop-filter: blur(6px);
+      pointer-events: none;
+      box-shadow: 0 0 15px rgba(0, 0, 0, 0.6);
+      text-align: center;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="ui-layer">
+    <div class="title">SPIDER-MAN</div>
+    <div class="subtitle">KHOẢNG CÁCH TÒA NHÀ 2.5CM</div>
+  </div>
+
+  <div class="touch-hint">CHẠM ĐỂ BẮN / BUÔNG TƠ NHỆN</div>
+
+  <canvas id="canvas"></canvas>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    let width, height;
+
+    // --- QUY ĐỔI KÍCH THƯỚC: 1 inch = 2.54cm = 96px => 2.5cm ≈ 94.5px ---
+    const CM_TO_PX = 96 / 2.54;
+    const BUILDING_GAP_PX = 2.5 * CM_TO_PX; // ~94.5px chính xác 2.5cm
+
+    function resize() {
+      width = canvas.width = window.innerWidth;
+      height = canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // VẬT LÝ
+    const gravity = 0.36;
+    let cameraX = 0;
+
+    // Ngôi sao
+    const stars = Array.from({ length: 60 }, () => ({
+      x: Math.random() * 2000,
+      y: Math.random() * (window.innerHeight * 0.5),
+      size: Math.random() * 2 + 0.5,
+      alpha: Math.random() * 0.8 + 0.2
+    }));
+
+    // Tòa nhà chính (Khoảng cách giữa các nhà đúng 2.5 cm)
+    const buildings = [];
+    let fgX = 0;
+
+    function generateBuilding(x) {
+      const w = 80 + Math.random() * 70;
+      // Tỉ lệ tòa nhà: Cao tối đa 40% màn hình -> Bầu trời chiếm 60%
+      const maxHeight = height * 0.40;
+      const minHeight = height * 0.22;
+      const h = minHeight + Math.random() * (maxHeight - minHeight);
+
+      const windowRows = Math.floor(h / 20);
+      const windowCols = Math.floor(w / 16);
+      const windows = [];
+
+      for (let r = 1; r < windowRows - 1; r++) {
+        for (let c = 1; c < windowCols - 1; c++) {
+          if (Math.random() > 0.4) {
+            windows.push({
+              x: c * 16 + 2,
+              y: r * 20 + 3,
+              color: Math.random() > 0.3 ? '#fef08a' : '#00e5ff'
+            });
+          }
+        }
+      }
+
+      return { x, width: w, height: h, windows };
+    }
+
+    // Khởi tạo dải tòa nhà ban đầu
+    for (let i = 0; i < 15; i++) {
+      buildings.push(generateBuilding(fgX));
+      // Tòa nhà kế tiếp cách tòa nhà trước ĐÚNG 2.5cm (BUILDING_GAP_PX)
+      fgX += buildings[i].width + BUILDING_GAP_PX;
+    }
+
+    // NGƯỜI NHỆN
+    const spidey = {
+      x: 120,
+      y: height * 0.35, // Xuất phát ở khoảng không bầu trời
+      vx: 6.5,
+      vy: 0,
+      state: 'FLYING',
+      anchor: { x: 0, y: 0 },
+      ropeLength: 0,
+      angle: 0,
+      angularVel: 0,
+      particles: []
+    };
+
+    function findAnchor() {
+      // Tìm nóc tòa nhà thích hợp phía trước
+      const target = buildings.find(b => (b.x + b.width / 2) > spidey.x + 60 && (b.x + b.width / 2) < spidey.x + 350);
+      if (target) {
+        return {
+          x: target.x + target.width / 2,
+          y: height - target.height
+        };
+      }
+      return { x: spidey.x + 180, y: height * 0.65 };
+    }
+
+    function attachWeb() {
+      spidey.anchor = findAnchor();
+      const dx = spidey.x - spidey.anchor.x;
+      const dy = spidey.y - spidey.anchor.y;
+      spidey.ropeLength = Math.sqrt(dx * dx + dy * dy);
+      spidey.angle = Math.atan2(dx, dy);
+
+      spidey.angularVel = (spidey.vx * Math.cos(spidey.angle) - spidey.vy * Math.sin(spidey.angle)) / spidey.ropeLength;
+      spidey.state = 'SWINGING';
+    }
+
+    attachWeb();
+
+    // TƯƠNG TÁC CHẠM DI ĐỘNG / MÁY TÍNH
+    function handleAction(e) {
+      if (e) e.preventDefault();
+      if (spidey.state === 'SWINGING') {
+        spidey.state = 'FLYING';
+        spidey.vx *= 1.15;
+        spidey.vy -= 2.2;
+      } else {
+        attachWeb();
+      }
+    }
+
+    window.addEventListener('touchstart', handleAction, { passive: false });
+    window.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse') handleAction(e);
+    });
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space') handleAction(e);
+    });
+
+    // VẬT LÝ CẬP NHẬT
+    function update() {
+      if (spidey.state === 'SWINGING') {
+        const angularAcc = (-gravity / spidey.ropeLength) * Math.sin(spidey.angle);
+        spidey.angularVel += angularAcc;
+        spidey.angularVel *= 0.998;
+        spidey.angle += spidey.angularVel;
+
+        spidey.x = spidey.anchor.x + spidey.ropeLength * Math.sin(spidey.angle);
+        spidey.y = spidey.anchor.y + spidey.ropeLength * Math.cos(spidey.angle);
+
+        spidey.vx = spidey.ropeLength * spidey.angularVel * Math.cos(spidey.angle);
+        spidey.vy = -spidey.ropeLength * spidey.angularVel * Math.sin(spidey.angle);
+
+        // Tự nhả tơ khi vọt lên đỉnh nhịp
+        if (spidey.angle > 0.42 && spidey.angularVel > 0) {
+          spidey.state = 'FLYING';
+          spidey.vx += 1.2;
+        }
+      } else {
+        spidey.vy += gravity;
+        spidey.x += spidey.vx;
+        spidey.y += spidey.vy;
+
+        spidey.vx *= 0.997;
+
+        if (spidey.vy > 1.8) {
+          attachWeb();
+        }
+
+        if (spidey.y > height - 80) {
+          spidey.vy = -11;
+          attachWeb();
+        }
+      }
+
+      // Hạt vệt sáng chuyển động
+      if (Math.random() > 0.2) {
+        spidey.particles.push({
+          x: spidey.x,
+          y: spidey.y,
+          radius: Math.random() * 2 + 1,
+          alpha: 1,
+          color: Math.random() > 0.5 ? '#ef4444' : '#00e5ff'
+        });
+      }
+
+      for (let i = spidey.particles.length - 1; i >= 0; i--) {
+        const p = spidey.particles[i];
+        p.alpha -= 0.04;
+        if (p.alpha <= 0) spidey.particles.splice(i, 1);
+      }
+
+      cameraX = spidey.x - width * 0.25;
+
+      // Sinh thêm tòa nhà phía trước (duy trì khoảng cách 2.5cm)
+      const lastBuilding = buildings[buildings.length - 1];
+      if (lastBuilding.x < cameraX + width + 200) {
+        const nextX = lastBuilding.x + lastBuilding.width + BUILDING_GAP_PX;
+        buildings.push(generateBuilding(nextX));
+      }
+
+      if (buildings[0].x + buildings[0].width < cameraX - 200) {
+        buildings.shift();
+      }
+    }
+
+    // ĐỒ HỌA
+    function render() {
+      ctx.clearRect(0, 0, width, height);
+
+      // 1. NỀN BẦU TRỜI ĐÊM (Chiếm 60% phía trên)
+      const skyGrad = ctx.createLinearGradient(0, 0, 0, height);
+      skyGrad.addColorStop(0, '#020617');
+      skyGrad.addColorStop(0.5, '#0f172a');
+      skyGrad.addColorStop(1, '#1e1b4b');
+      ctx.fillStyle = skyGrad;
+      ctx.fillRect(0, 0, width, height);
+
+      // Ngôi sao
+      ctx.fillStyle = '#ffffff';
+      stars.forEach(s => {
+        const starX = (s.x - cameraX * 0.05) % width;
+        ctx.globalAlpha = s.alpha;
+        ctx.fillRect(starX < 0 ? starX + width : starX, s.y, s.size, s.size);
+      });
+      ctx.globalAlpha = 1;
+
+      // Mặt trăng tỏa sáng trên bầu trời cao
+      const moonX = width - 80;
+      const moonY = 70;
+      ctx.fillStyle = 'rgba(224, 242, 254, 0.9)';
+      ctx.beginPath();
+      ctx.arc(moonX, moonY, 28, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 2. TÒA NHÀ (Tỉ lệ 40% phía dưới)
+      buildings.forEach(b => {
+        const drawX = b.x - cameraX;
+
+        // Thân tòa nhà
+        const bGrad = ctx.createLinearGradient(drawX, height - b.height, drawX + b.width, height);
+        bGrad.addColorStop(0, '#0f172a');
+        bGrad.addColorStop(1, '#020617');
+        ctx.fillStyle = bGrad;
+        ctx.fillRect(drawX, height - b.height, b.width, b.height);
+
+        // Viền nóc tòa nhà phát sáng nhẹ
+        ctx.strokeStyle = 'rgba(56, 189, 248, 0.3)';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(drawX, height - b.height, b.width, b.height);
+
+        // Cửa sổ
+        b.windows.forEach(w => {
+          ctx.fillStyle = w.color;
+          ctx.globalAlpha = 0.65;
+          ctx.fillRect(drawX + w.x, height - b.height + w.y, 7, 10);
+        });
+        ctx.globalAlpha = 1;
+      });
+
+      // 3. HIỆU ỨNG SỢI TƠ NHỆN (Rõ ràng & Phát sáng)
+      if (spidey.state === 'SWINGING') {
+        const anchorScreenX = spidey.anchor.x - cameraX;
+        const spideyScreenX = spidey.x - cameraX;
+
+        ctx.save();
+        
+        // Dải tơ nhện trắng phát sáng dạ quang
+        ctx.beginPath();
+        ctx.moveTo(spideyScreenX, spidey.y - 2);
+        ctx.lineTo(anchorScreenX, spidey.anchor.y);
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 3;
+        ctx.shadowColor = '#00e5ff';
+        ctx.shadowBlur = 12;
+        ctx.stroke();
+
+        // Lớp lõi tơ nhện mảnh bên trong
+        ctx.beginPath();
+        ctx.moveTo(spideyScreenX, spidey.y - 2);
+        ctx.lineTo(anchorScreenX, spidey.anchor.y);
+        ctx.strokeStyle = '#e0f2fe';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // Mạng nhện xòe ra ở điểm bám trên nóc nhà
+        ctx.fillStyle = '#00e5ff';
+        ctx.beginPath();
+        ctx.arc(anchorScreenX, spidey.anchor.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+      }
+
+      // Hạt vệt sáng đu tơ
+      spidey.particles.forEach(p => {
+        ctx.save();
+        ctx.globalAlpha = p.alpha;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x - cameraX, p.y, p.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      });
+
+      // 4. VẼ NGƯỜI NHỆN ĐU TƠ
+      ctx.save();
+      ctx.translate(spidey.x - cameraX, spidey.y);
+
+      const moveAngle = Math.atan2(spidey.vy, spidey.vx);
+      ctx.rotate(moveAngle + Math.PI / 6);
+
+      // Thân chính (Đỏ)
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 13, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Đầu
+      ctx.beginPath();
+      ctx.arc(9, -3, 6.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Mắt trắng chuẩn Spider-Man
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.moveTo(10, -6);
+      ctx.lineTo(14, -3);
+      ctx.lineTo(11, -1);
+      ctx.closePath();
+      ctx.fill();
+
+      // Chân / Bắp chân màu xanh dương
+      ctx.strokeStyle = '#1d4ed8';
+      ctx.lineWidth = 3;
+      
+      ctx.beginPath();
+      ctx.moveTo(-3, 2);
+      ctx.lineTo(-11, 8);
+      ctx.lineTo(-5, 16);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(2, 3);
+      ctx.lineTo(-4, 13);
+      ctx.lineTo(3, 18);
+      ctx.stroke();
+
+      // Tay hướng về phía trước giơ ngón tay phóng tơ
+      ctx.strokeStyle = '#ef4444';
+      ctx.beginPath();
+      ctx.moveTo(5, -2);
+      ctx.lineTo(16, -4);
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    function loop() {
+      update();
+      render();
+      requestAnimationFrame(loop);
+    }
+
+    loop();
+  </script>
+</body>
+</html>
